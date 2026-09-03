@@ -1,0 +1,16 @@
+{
+  "name": "fastify-node-api",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "start": "node src/application/server.js",
+    "tunnel": "ssh -R 80:localhost:3001 nokey@localhost.run",
+    "webhook": "node src/application/set-webhook.js set",
+    "webhook-manual": "node src/application/set-webhook.js set-manual",
+    "webhook-info": "node src/application/set-webhook.js info",
+    "webhook-delete": "node src/application/set-webhook.js delete"
+  },
+  "dependencies": {
+    "fastify": "^5.2.0"
+  }
+}
