@@ -213,7 +213,7 @@ fastify.setNotFoundHandler(async (request, reply) => {
 // ЗАПУСК СЕРВЕРА
 // ============================================
 try {
-    await fastify.listen({ port: PORT });
+    await fastify.listen({ port: PORT, host: '0.0.0.0' });
     console.log(`\n🚀 Сервер запущен на http://localhost:${PORT}/`);
     console.log(`📋 Webhook endpoint: http://localhost:${PORT}/webhook/telegram`);
     console.log(`✅ Бот готов принимать апдейты!`);
