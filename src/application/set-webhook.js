@@ -274,7 +274,10 @@ async function main() {
             break;
         default:
             console.log(`
+Использование:
   npm run webhook              - установить вебхук (автоматически)
+  npm run webhook-info         - проверить вебхук
+  npm run webhook-delete       - удалить вебхук
             `);
     }
     process.exit(0);

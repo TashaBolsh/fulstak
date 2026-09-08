@@ -39,4 +39,5 @@ Rel(telegramBot, telegramApi, "sendMessage", "HTTPS")
 
 ' Легенда
 LAYOUT_TOP_DOWN()
+
 @enduml

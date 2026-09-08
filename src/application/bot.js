@@ -27,7 +27,9 @@ async function poll() {
         console.error('Ошибка при запросе обновлений:', err.message); // исправлено consol → console
     }
 }
+
 // Запускаем первый раз
 poll();
+
 // Запускаем интервал каждые 5 секунд
 setInterval(poll, 5000);
