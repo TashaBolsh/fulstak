@@ -54,5 +54,4 @@ Rel(webhookHandler, logger, "Логирует")
 Rel(sendMessage, telegramApi, "sendMessage", "HTTPS")
 
 LAYOUT_TOP_DOWN()
-
 @enduml

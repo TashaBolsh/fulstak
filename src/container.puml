@@ -48,5 +48,4 @@ Rel(setup, telegramApi, "setWebhook", "HTTPS")
 Rel(server, config, "Читает\nBOT_TOKEN, PORT")
 
 LAYOUT_TOP_DOWN()
-
 @enduml

@@ -1,27 +1,21 @@
 import Fastify from 'fastify';
-
 // Импортируем модуль валют
 import {
     getExchangeRate,
     detectCurrency,
     SUPPORTED_CURRENCIES
 } from './currency.js';
-
 // ============================================
 // ЗАГРУЗКА КОНФИГУРАЦИИ
 // ============================================
 process.loadEnvFile(new URL('../../.env', import.meta.url));
-
 const BOT_TOKEN = process.env.BOT_TOKEN;
 if (!BOT_TOKEN) {
     console.error('❌ BOT_TOKEN не задан в .env');
     process.exit(1);
 }
-
 const PORT = process.env.PORT || 3001;
-
 const fastify = Fastify({ logger: true });
-
 // ============================================
 // ФУНКЦИЯ ОТПРАВКИ СООБЩЕНИЯ
 // ============================================
@@ -49,7 +43,6 @@ async function sendMessage(chatId, text) {
         console.error('❌ Ошибка при отправке:', error.message);
     }
 }
-
 // ============================================
 // ВЕБХУК ДЛЯ TELEGRAM - ЛОГИРУЕТ И ОТВЕЧАЕТ НА ВАЛЮТЫ
 // ============================================
@@ -172,11 +165,9 @@ fastify.post("/webhook/telegram", async (request, reply) => {
 
     return { ok: true };
 });
-
 // ============================================
 // ДОПОЛНИТЕЛЬНЫЕ ЭНДПОИНТЫ (для проверки)
 // ============================================
-
 // GET / - проверка работы сервера
 fastify.get("/", async (request, reply) => {
     return {
@@ -208,7 +199,6 @@ fastify.setNotFoundHandler(async (request, reply) => {
         statusCode: 404
     });
 });
-
 // ============================================
 // ЗАПУСК СЕРВЕРА
 // ============================================
