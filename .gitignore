@@ -1,0 +1,23 @@
+# Зависимости Node.js
+node_modules/
+package-lock.json
+
+# Секретные переменные окружения (ВАЖНО!)
+.env
+.env.local
+supabase/.env
+supabase/.env.local
+
+# Служебные файлы Supabase CLI
+supabase/.temp/
+supabase/.branches/
+
+# IDE и OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Логи
+*.log
+npm-debug.log*
