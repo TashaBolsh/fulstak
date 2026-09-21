@@ -1,14 +1,8 @@
-// currency.js - Модуль для работы с курсами валют
+// supabase/functions/telegram-bot/currency.ts
 
-// ============================================
-// СПИСОК ПОДДЕРЖИВАЕМЫХ ВАЛЮТ
-// ============================================
 export const SUPPORTED_CURRENCIES = ['USD', 'EUR', 'GBP', 'CNY', 'KZT', 'UAH', 'RUB', 'PLN', 'USDT'];
 
-// ============================================
-// МАППИНГ ВАЛЮТ (названия и коды)
-// ============================================
-export const currencyMap = {
+export const currencyMap: Record<string, string> = {
     // USD
     'usd': 'USD',
     'доллар': 'USD',
@@ -60,9 +54,9 @@ export const currencyMap = {
 };
 
 // ============================================
-// ФУНКЦИЯ ДЛЯ ОПРЕДЕЛЕНИЯ КОДА ВАЛЮТЫ ПО ТЕКСТУ
+// ОПРЕДЕЛЕНИЕ КОДА ВАЛЮТЫ ПО ТЕКСТУ
 // ============================================
-export function detectCurrency(text) {
+export function detectCurrency(text: string): string | null {
     const lowerText = text.toLowerCase().trim();
 
     // Ищем точное совпадение
@@ -81,15 +75,14 @@ export function detectCurrency(text) {
 }
 
 // ============================================
-// ФУНКЦИЯ ДЛЯ ПОЛУЧЕНИЯ КУРСА ВАЛЮТЫ ОТ НБРБ
+// ПОЛУЧЕНИЕ КУРСА ВАЛЮТЫ ОТ НБРБ
 // ============================================
-export async function getExchangeRate(currency) {
+export async function getExchangeRate(currency: string): Promise<{ code: string; message: string } | null> {
     try {
         console.log(`🔍 Запрос курса для: ${currency}`);
 
         // Для USDT используем Binance + курс USD к BYN
         if (currency === 'USDT') {
-            // Получаем курс USDT к USD
             const binanceResponse = await fetch('https://api.binance.com/api/v3/ticker/price?symbol=USDTUSD');
             if (!binanceResponse.ok) {
                 console.error('❌ Ошибка API Binance:', binanceResponse.status);
@@ -98,7 +91,6 @@ export async function getExchangeRate(currency) {
             const binanceData = await binanceResponse.json();
             const usdtToUsd = parseFloat(binanceData.price);
 
-            // Получаем курс USD к BYN от НБРБ
             const nbrbResponse = await fetch('https://api.nbrb.by/exrates/rates/USD?parammode=2');
             if (!nbrbResponse.ok) {
                 console.error('❌ Ошибка API НБРБ:', nbrbResponse.status);
@@ -111,9 +103,6 @@ export async function getExchangeRate(currency) {
 
             return {
                 code: 'USDT',
-                name: 'Tether USD',
-                rate: usdtToByn,
-                nominal: 1,
                 message: `💰 USDT (Tether USD): ${usdtToByn.toFixed(4)} BYN за 1 USDT\n📊 1 USDT ≈ ${usdtToUsd.toFixed(4)} USD`
             };
         }
@@ -135,9 +124,6 @@ export async function getExchangeRate(currency) {
         if (currencyCode === 'BYN') {
             return {
                 code: 'BYN',
-                name: 'Белорусский рубль',
-                rate: 1,
-                nominal: 1,
                 message: `🇧🇾 BYN (Белорусский рубль) - 1 BYN`
             };
         }
@@ -147,9 +133,6 @@ export async function getExchangeRate(currency) {
             const rate = data.Cur_OfficialRate / data.Cur_Scale;
             return {
                 code: currencyCode,
-                name: data.Cur_Name,
-                rate: rate,
-                nominal: data.Cur_Scale,
                 message: `💰 ${data.Cur_Abbreviation} (${data.Cur_Name}): ${rate.toFixed(4)} BYN за 1 ${data.Cur_Abbreviation}`
             };
         }
@@ -157,7 +140,7 @@ export async function getExchangeRate(currency) {
         console.log(`❌ Валюта ${currencyCode} не найдена в НБРБ`);
         return null;
     } catch (error) {
-        console.error('❌ Ошибка получения курса:', error.message);
+        console.error('❌ Ошибка получения курса:', error instanceof Error ? error.message : String(error));
         return null;
     }
 }
