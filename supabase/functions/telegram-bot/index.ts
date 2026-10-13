@@ -1,84 +1,165 @@
 // supabase/functions/telegram-bot/index.ts
 
+import "@supabase/functions-js/edge-runtime.d.ts";
+import { withSupabase } from "@supabase/server";
 import { getExchangeRate, detectCurrency, SUPPORTED_CURRENCIES } from "./currency.ts";
 
-// Получаем токен из переменных окружения Supabase
+// ============================================
+// КОНФИГУРАЦИЯ
+// ============================================
 const BOT_TOKEN = Deno.env.get("BOT_TOKEN");
+const WEBHOOK_SECRET = Deno.env.get("TELEGRAM_WEBHOOK_SECRET");
+
+const MESSENGER_TYPE = "telegram";
+const REPLY_DELAY_MS = 2000;
+const AUTO_REPLY_TEXT = "Мы получили ваш запрос и уже обрабатываем его. Пожалуйста, подождите.";
 
 const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-telegram-bot-api-secret-token",
 };
 
 // ============================================
-// ФУНКЦИЯ ОТПРАВКИ СООБЩЕНИЯ В TELEGRAM
+// ОТПРАВКА СООБЩЕНИЯ В TELEGRAM
 // ============================================
-async function sendMessage(chatId: number, text: string) {
+async function sendMessage(chatId: number, text: string): Promise<boolean> {
   if (!BOT_TOKEN) {
-    console.error("❌ BOT_TOKEN не задан в переменных окружения!");
-    return;
+    console.error("❌ BOT_TOKEN не задан");
+    return false;
   }
-  const url = `https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`;
   try {
-    console.log(`📤 Отправка сообщения в чат ${chatId}`);
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+    const response = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         chat_id: chatId,
         text: text,
-        parse_mode: 'HTML'
-      })
+        parse_mode: "HTML",
+      }),
     });
     const data = await response.json();
     if (!data.ok) {
-      console.error('❌ Ошибка отправки:', data.description);
-    } else {
-      console.log('✅ Сообщение отправлено');
+      console.error("❌ Ошибка отправки в Telegram:", data.description);
+      return false;
     }
-    return data;
+    return true;
   } catch (error) {
-    console.error('❌ Ошибка при отправке:', error instanceof Error ? error.message : String(error));
+    console.error("❌ Ошибка сети:", error instanceof Error ? error.message : String(error));
+    return false;
   }
 }
 
 // ============================================
-// ОСНОВНОЙ СЕРВЕР (Аналог fastify.post("/webhook/telegram"))
+// ОСНОВНОЙ ОБРАБОТЧИК
 // ============================================
-Deno.serve(async (req: Request): Promise<Response> => {
-  // 1. Обработка CORS preflight запросов (как в примере hello-world)
-  if (req.method === 'OPTIONS') {
-    return new Response('ok', { headers: corsHeaders });
-  }
+export default {
+  fetch: withSupabase({ auth: ["none"] }, async (req: Request, ctx: any): Promise<Response> => {
+    // CORS preflight
+    if (req.method === "OPTIONS") {
+      return new Response("ok", { headers: corsHeaders });
+    }
 
-  // 2. Проверяем, что это POST запрос
-  if (req.method !== 'POST') {
-    return new Response(JSON.stringify({ error: "Method not allowed" }), {
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-      status: 405,
-    });
-  }
+    if (req.method !== "POST") {
+      return new Response(JSON.stringify({ error: "Method not allowed" }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+        status: 405,
+      });
+    }
 
-  try {
-    const update = await req.json();
+    // ----------------------------------------
+    // Проверка secret_token от Telegram
+    // ----------------------------------------
+    if (WEBHOOK_SECRET) {
+      const incomingSecret = req.headers.get("x-telegram-bot-api-secret-token");
+      if (incomingSecret !== WEBHOOK_SECRET) {
+        console.warn("🚫 Неверный webhook secret");
+        return new Response(JSON.stringify({ error: "Unauthorized" }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+          status: 401,
+        });
+      }
+    }
 
-    // Логируем апдейт
-    console.log('='.repeat(60));
-    console.log('📨 ПОЛУЧЕН АПДЕЙТ ОТ TELEGRAM');
-    console.log(`🆔 Update ID: ${update.update_id || 'неизвестен'}`);
-    console.log(JSON.stringify(update, null, 2));
-    console.log('='.repeat(60));
+    try {
+      const update = await req.json();
+      console.log("=".repeat(60));
+      console.log("📨 Апдейт от Telegram:", JSON.stringify(update, null, 2));
+      console.log("=".repeat(60));
 
-    // 3. Обработка сообщения
-    if (update.message && update.message.text) {
-      const chatId = update.message.chat.id;
-      const text = update.message.text.trim();
-      const firstName = update.message.from.first_name || 'Друг';
+      // Игнорируем нетекстовые апдейты
+      if (!update.message || !update.message.text) {
+        return new Response(JSON.stringify({ ok: true }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+          status: 200,
+        });
+      }
+
+      const message = update.message;
+      const chatId: number = message.chat.id;
+      const text: string = message.text.trim();
+      const firstName: string = message.from.first_name || "Клиент";
+      const lastName: string | null = message.from.last_name || null;
+      const telegramUserId: number = message.from.id;
 
       console.log(`👤 ${firstName}: ${text}`);
 
+      // ============================================
+      // 1. СОХРАНЯЕМ СООБЩЕНИЕ В БД (всегда, до проверки команд)
+      // ============================================
+      let clientId: number | null = null;
+
+      const { data: existingClient } = await ctx.supabaseAdmin
+          .from("clients")
+          .select("id")
+          .eq("user_telegram_id", String(telegramUserId))
+          .maybeSingle();
+
+      if (existingClient) {
+        clientId = existingClient.id;
+        console.log(`✅ Клиент найден: ID ${clientId}`);
+      } else {
+        const { data: newClient, error: createError } = await ctx.supabaseAdmin
+            .from("clients")
+            .insert({
+              first_name: firstName,
+              last_name: lastName,
+              user_telegram_id: String(telegramUserId),
+            })
+            .select("id")
+            .single();
+
+        if (createError) {
+          console.error("❌ Ошибка создания клиента:", createError.message);
+        } else {
+          clientId = newClient.id;
+          console.log(`✅ Создан клиент: ID ${clientId}`);
+        }
+      }
+
+      if (clientId) {
+        const { error: insertError } = await ctx.supabaseAdmin
+            .from("messages")
+            .insert({
+              author: firstName + (lastName ? ` ${lastName}` : ""),
+              body: text,
+              messenger_user_id: String(telegramUserId),
+              messenger_type: MESSENGER_TYPE,
+              client_id: clientId,
+            });
+
+        if (insertError) {
+          console.error("❌ Ошибка сохранения:", insertError.message);
+        } else {
+          console.log("✅ Сообщение сохранено в БД");
+        }
+      }
+
+      // ============================================
+      // 2. ЛОГИКА БОТА (курсы валют)
+      // ============================================
+
       // Команда /start
-      if (text === '/start') {
+      if (text === "/start") {
         await sendMessage(chatId,
             `👋 Привет, ${firstName}!\n\n` +
             `Я бот для проверки курсов валют в белорусских рублях (BYN).\n\n` +
@@ -102,7 +183,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
       }
 
       // Команда /help
-      if (text === '/help') {
+      if (text === "/help") {
         await sendMessage(chatId,
             `📚 <b>Список команд:</b>\n\n` +
             `🔹 <b>Узнать курс валюты</b>\n` +
@@ -122,72 +203,62 @@ Deno.serve(async (req: Request): Promise<Response> => {
       }
 
       // Команда /rates
-      if (text === '/rates' || text === 'все курсы' || text === 'все валюты') {
-        let message = '📊 <b>Курсы валют к белорусскому рублю:</b>\n\n';
-
+      if (text === "/rates" || text === "все курсы" || text === "все валюты") {
+        let messageText = "📊 <b>Курсы валют к белорусскому рублю:</b>\n\n";
         for (const currency of SUPPORTED_CURRENCIES) {
           const rate = await getExchangeRate(currency);
           if (rate) {
-            message += `${rate.message}\n`;
+            messageText += `${rate.message}\n`;
           } else {
-            message += `❌ ${currency}: не удалось получить курс\n`;
+            messageText += `❌ ${currency}: не удалось получить курс\n`;
           }
         }
-
-        message += `\n🔄 Актуально на ${new Date().toLocaleString('ru-RU')}`;
-        message += `\n📊 Источник: Национальный банк Республики Беларусь`;
-        await sendMessage(chatId, message);
+        messageText += `\n🔄 Актуально на ${new Date().toLocaleString("ru-RU")}`;
+        messageText += `\n📊 Источник: Национальный банк Республики Беларусь`;
+        await sendMessage(chatId, messageText);
         return new Response(JSON.stringify({ ok: true }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
 
       // Обработка запроса курса валюты
-      console.log(`🔍 Проверка: "${text}" на предмет валюты`);
-
       const currencyCode = detectCurrency(text);
-
       if (currencyCode) {
         console.log(`✅ Найдена валюта: ${currencyCode}`);
         const rate = await getExchangeRate(currencyCode);
-
         if (rate) {
           await sendMessage(chatId, rate.message);
         } else {
-          await sendMessage(chatId,
-              `❌ Не удалось получить курс для ${currencyCode}. Попробуйте позже.`
-          );
+          await sendMessage(chatId, `❌ Не удалось получить курс для ${currencyCode}. Попробуйте позже.`);
         }
-      } else {
-        // Если не валюта и не команда
-        console.log(`❌ Неизвестная команда: "${text}"`);
-        await sendMessage(chatId,
-            `❓ Я не понял команду.\n` +
-            `Напиши <code>usd</code>, <code>eur</code> или другую валюту.\n` +
-            `Или <code>/help</code> для списка команд.`
-        );
+        return new Response(JSON.stringify({ ok: true }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
-    } else {
-      console.log('📨 Получен апдейт другого типа');
+
+      // ============================================
+      // 3. ЕСЛИ НЕ ВАЛЮТА И НЕ КОМАНДА → автоответ через 2 сек
+      // ============================================
+      console.log("📩 Обычное сообщение — отправляем автоответ через 2 сек");
+      // @ts-ignore — EdgeRuntime доступен в Supabase Edge Functions
+      EdgeRuntime.waitUntil(
+          (async () => {
+            await new Promise((resolve) => setTimeout(resolve, REPLY_DELAY_MS));
+            await sendMessage(chatId, AUTO_REPLY_TEXT);
+            console.log("✅ Автоответ отправлен");
+          })(),
+      );
+
+      return new Response(JSON.stringify({ ok: true }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+        status: 200,
+      });
+
+    } catch (error) {
+      console.error("❌ Ошибка обработки:", error);
+      return new Response(
+          JSON.stringify({ error: error instanceof Error ? error.message : String(error) }),
+          {
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+            status: 500,
+          },
+      );
     }
-
-    // 4. Возвращаем успешный ответ
-    return new Response(
-        JSON.stringify({ ok: true, message: "Update processed" }),
-        {
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-          status: 200
-        }
-    );
-
-  } catch (error) {
-    console.error("❌ Ошибка обработки запроса:", error);
-    const errorMessage = error instanceof Error ? error.message : String(error);
-
-    return new Response(
-        JSON.stringify({ error: errorMessage }),
-        {
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-          status: 500
-        }
-    );
-  }
-});
+  }),
+};
