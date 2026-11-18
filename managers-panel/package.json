@@ -4,6 +4,7 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
+    "start": "node --env-file-if-exists=.env src/echo-chat.js",
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
